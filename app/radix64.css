@@ -1,0 +1,114 @@
+/* Radix64 layout classes. Unlayered so they win over shadcn component defaults. */
+
+.workspace {
+  @apply grid h-dvh grid-cols-[1fr_400px] grid-rows-[auto_minmax(0,1fr)];
+}
+
+.header {
+  @apply col-span-2 flex h-14 shrink-0 items-center gap-3 border-b px-4 bg-green-950;
+}
+.header-logo-text {
+  @apply text-xl font-bold tracking-tight text-green-300;
+}
+.header-divider {
+  @apply data-[orientation=vertical]:h-5 bg-green-700;
+}
+
+.app-selector {
+  @apply w-72;
+}
+.app-selector-menu {
+  @apply max-h-96 w-80;
+}
+.app-selector-name {
+  @apply truncate;
+}
+
+.preview {
+  @apply relative h-full min-h-0;
+}
+.preview-message {
+  @apply absolute inset-0 flex items-center justify-center bg-green-50 p-6 text-sm text-green-700;
+}
+.preview-frame {
+  @apply absolute inset-0 size-full border-0;
+}
+.preview-frame[data-hidden="true"] {
+  @apply invisible;
+}
+
+.chat {
+  @apply flex h-full min-h-0 flex-col border-l border-green-200;
+}
+.chat-scroll {
+  @apply relative min-h-0 flex-1;
+}
+.chat-messages {
+  @apply flex flex-col gap-3 p-4 text-sm;
+}
+.chat-message {
+  @apply flex flex-col gap-1;
+}
+.chat-user-text {
+  @apply ml-auto max-w-[85%] rounded-lg bg-green-100 text-green-900 px-3 py-2;
+}
+.chat-pending {
+  @apply opacity-60;
+}
+.chat-assistant-text {
+  @apply flex flex-col gap-2;
+}
+.chat-assistant-text ul {
+  @apply list-disc pl-5;
+}
+.chat-assistant-text ol {
+  @apply list-decimal pl-5;
+}
+.chat-assistant-text h1,
+.chat-assistant-text h2,
+.chat-assistant-text h3 {
+  @apply font-semibold;
+}
+.chat-assistant-text code {
+  @apply rounded bg-green-50 px-1 font-mono text-xs text-green-800;
+}
+.chat-assistant-text pre {
+  @apply overflow-x-auto rounded bg-green-50 p-2;
+}
+.chat-assistant-text pre code {
+  @apply bg-transparent p-0;
+}
+.chat-assistant-text a {
+  @apply underline text-green-700;
+}
+.chat-tool-line {
+  @apply text-xs text-green-600;
+}
+.chat-status {
+  @apply text-green-700;
+}
+.chat-composer {
+  @apply flex gap-2 border-t border-green-200 p-3 bg-green-50;
+}
+.chat-input {
+  @apply min-h-9 resize-none focus-visible:ring-green-500;
+}
+
+.question {
+  @apply flex flex-col gap-3 rounded-lg border border-green-200 bg-green-50 p-3;
+}
+.question-item {
+  @apply flex flex-col gap-2;
+}
+.question-title {
+  @apply font-medium text-green-900;
+}
+.question-options {
+  @apply flex flex-wrap gap-2;
+}
+.chat-answer {
+  @apply ml-4 text-xs text-green-600;
+}
+.question-actions {
+  @apply flex gap-2;
+}
