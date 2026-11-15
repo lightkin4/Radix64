@@ -1,9 +1,10 @@
 import { Separator } from "@/components/ui/separator";
-import type { App } from "../server/base44";
+import type { AppSummary } from "@/lib/types";
 import AppSelector from "./AppSelector";
+import ModelBadge from "./ModelBadge";
 
 type Props = {
-  apps: App[];
+  apps: AppSummary[];
   selectedAppId: string | null;
   onSelectApp: (id: string | null) => void;
 };
@@ -19,6 +20,7 @@ export default function Header({ apps, selectedAppId, onSelectApp }: Props) {
         selectedAppId={selectedAppId}
         onSelectApp={onSelectApp}
       />
+      <ModelBadge />
     </header>
   );
 }

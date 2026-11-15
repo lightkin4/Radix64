@@ -7,10 +7,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { App } from "../server/base44";
+import type { AppSummary } from "@/lib/types";
 
 type Props = {
-  apps: App[];
+  apps: AppSummary[];
   selectedAppId: string | null;
   onSelectApp: (id: string | null) => void;
 };

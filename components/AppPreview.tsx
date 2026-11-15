@@ -1,30 +1,15 @@
 "use client";
-import { useEffect, useState } from "react";
-import { getPreviewUrl, type App } from "../server/base44";
+import type { AppSummary } from "@/lib/types";
 
-// Shows the app's latest build. Once building, the live sandbox loads behind it,
-// then takes over and shows each change as it lands.
+// Shows the latest build of the selected app. The version in the URL reloads
+// the frame whenever a new build lands.
 export default function AppPreview({
   app,
-  live,
+  version,
 }: {
-  app: App | null;
-  live: boolean;
+  app: AppSummary | null;
+  version: number;
 }) {
-  const [latestUrl, setLatestUrl] = useState<string | null>(null);
-  const [liveUrl, setLiveUrl] = useState<string | null>(null);
-  const [shown, setShown] = useState<"latest" | "live" | null>(null);
-
-  useEffect(() => {
-    if (app)
-      getPreviewUrl(app.id, "latest_preview").then(setLatestUrl, console.error);
-  }, [app]);
-
-  useEffect(() => {
-    if (app && live)
-      getPreviewUrl(app.id, "live_preview").then(setLiveUrl, console.error);
-  }, [app, live]);
-
   if (!app) {
     return (
       <main className="preview">
@@ -35,28 +20,17 @@ export default function AppPreview({
     );
   }
 
+  const src = `/api/apps/${app.id}/preview?v=${version}`;
+
   return (
     <main className="preview">
-      {!shown && (
-        <p className="preview-message">Starting the preview…</p>
-      )}
-      {latestUrl && shown !== "live" && (
-        <iframe
-          src={latestUrl}
-          title={app.name}
-          onLoad={() => setShown("latest")}
-          className="preview-frame"
-        />
-      )}
-      {liveUrl && (
-        <iframe
-          src={liveUrl}
-          title={app.name}
-          onLoad={() => setShown("live")}
-          className="preview-frame"
-          data-hidden={shown !== "live"}
-        />
-      )}
+      <iframe
+        key={src}
+        src={src}
+        title={app.name}
+        className="preview-frame"
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+      />
     </main>
   );
 }

@@ -14,6 +14,13 @@
   @apply data-[orientation=vertical]:h-5 bg-green-700;
 }
 
+.model-badge {
+  @apply ml-auto rounded-full border border-green-700 px-2.5 py-1 text-xs text-green-200;
+}
+.model-badge[data-ready="false"] {
+  @apply border-amber-600 text-amber-200;
+}
+
 .app-selector {
   @apply w-72;
 }

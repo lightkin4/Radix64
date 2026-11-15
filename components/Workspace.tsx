@@ -1,38 +1,40 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { listApps, type App } from "../server/base44";
+import { listApps } from "@/lib/api";
+import type { AppSummary } from "@/lib/types";
 import AppPreview from "./AppPreview";
 import Chat from "./Chat";
 import Header from "./Header";
 
 export default function Workspace() {
-  const [apps, setApps] = useState<App[]>([]);
+  const [apps, setApps] = useState<AppSummary[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
-  const [liveAppId, setLiveAppId] = useState<string | null>(null);
-  const app = apps.find((a) => a.id === appId) ?? null;
+  const [version, setVersion] = useState(0);
+  const app = apps.find((candidate) => candidate.id === appId) ?? null;
 
   useEffect(() => {
     listApps().then(setApps, console.error);
   }, []);
 
-  function onAppCreated(created: App) {
-    setApps((all) => [created, ...all]);
-    setAppId(created.id);
-  }
-
-  const onBuildingChange = useCallback(
-    (building: boolean) => {
-      if (building) setLiveAppId(appId);
-      else if (liveAppId === appId) listApps().then(setApps, console.error);
+  const selectApp = useCallback(
+    (id: string | null) => {
+      setAppId(id);
+      setVersion(apps.find((candidate) => candidate.id === id)?.version ?? 0);
     },
-    [appId, liveAppId],
+    [apps],
   );
+
+  function onAppCreated(created: AppSummary) {
+    setApps((all) => [created, ...all.filter((app) => app.id !== created.id)]);
+    setAppId(created.id);
+    setVersion(created.version);
+  }
 
   return (
     <div className="workspace">
-      <Header apps={apps} selectedAppId={appId} onSelectApp={setAppId} />
-      <AppPreview key={`preview-${appId}`} app={app} live={liveAppId === appId} />
-      <Chat app={app} onAppCreated={onAppCreated} onBuildingChange={onBuildingChange} />
+      <Header apps={apps} selectedAppId={appId} onSelectApp={selectApp} />
+      <AppPreview key={`preview-${appId}`} app={app} version={version} />
+      <Chat appId={appId} onAppCreated={onAppCreated} onBuild={setVersion} />
     </div>
   );
 }

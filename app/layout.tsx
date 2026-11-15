@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={geist.variable}>
+    // The preview proxy injects attributes onto <html> before hydration.
+    <html lang="en" className={geist.variable} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );
