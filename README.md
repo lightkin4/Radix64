@@ -55,6 +55,25 @@ Each app keeps its chat history and latest build in a small JSON store (`DATA_DI
 | `POST /api/apps/:id/chat` | Run one build turn, streamed as NDJSON |
 | `GET /api/apps/:id/preview` | Latest build as HTML |
 | `GET /api/config` | Active model provider and readiness |
+| `GET /api/models` | Models installed in Ollama, plus the selected one |
+| `POST /api/models/pull` | Download another model by `{ name }` |
+| `GET` / `PUT /api/settings` | Selected model and whether a GitHub token is stored |
+| `POST /api/github/import` | Read a repository (`{ url, branch?, token? }`) into a new app |
+
+## Choosing a model
+
+Click **Model** in the header to pick any model installed in Ollama, or type a name
+such as `qwen2.5:3b` and download it. The choice is saved in `DATA_DIR/settings.json`
+and overrides `OLLAMA_MODEL`; the header badge always shows the model in use.
+
+## Building from a GitHub repository
+
+Click **Read a repo**, paste `owner/repo` or a github.com URL, optionally pick a branch
+and add a personal access token for private repositories (it is stored locally in
+`DATA_DIR/settings.json` and never returned to the browser). Radix64 reads the
+repository's source files, keeps them with the new app, and the first chat turn
+rebuilds the app as a self-contained HTML page that keeps the repository's content,
+screens and behaviour.
 
 ## Environment variables
 

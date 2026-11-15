@@ -1,3 +1,5 @@
+import { GithubIcon, SlidersHorizontalIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { AppSummary } from "@/lib/types";
 import AppSelector from "./AppSelector";
@@ -7,9 +9,19 @@ type Props = {
   apps: AppSummary[];
   selectedAppId: string | null;
   onSelectApp: (id: string | null) => void;
+  onOpenModels: () => void;
+  onOpenGithub: () => void;
+  modelVersion: number;
 };
 
-export default function Header({ apps, selectedAppId, onSelectApp }: Props) {
+export default function Header({
+  apps,
+  selectedAppId,
+  onSelectApp,
+  onOpenModels,
+  onOpenGithub,
+  modelVersion,
+}: Props) {
   return (
     <header className="header">
       {/* Radix64 text logo — green on dark */}
@@ -20,7 +32,27 @@ export default function Header({ apps, selectedAppId, onSelectApp }: Props) {
         selectedAppId={selectedAppId}
         onSelectApp={onSelectApp}
       />
-      <ModelBadge />
+      <div className="header-actions">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="header-button"
+          onClick={onOpenGithub}
+        >
+          <GithubIcon />
+          Read a repo
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="header-button"
+          onClick={onOpenModels}
+        >
+          <SlidersHorizontalIcon />
+          Model
+        </Button>
+        <ModelBadge refreshKey={modelVersion} />
+      </div>
     </header>
   );
 }

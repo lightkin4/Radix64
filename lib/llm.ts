@@ -1,8 +1,10 @@
-import type { ModelConfig } from "./types";
+import type { ModelConfig, ModelInfo } from "./types";
+import { getSettings } from "./settings";
 
-// Self-hosted LLM access. The default provider is a local Ollama server running
-// llama3.2:3b; `LLM_PROVIDER=openai` points at any OpenAI-compatible endpoint
-// (including Ollama's /v1 API or a remote server).
+// Self-hosted LLM access. The default provider is a local Ollama server; the
+// model is whatever the user picked in the model settings, falling back to
+// OLLAMA_MODEL (llama3.2:3b). `LLM_PROVIDER=openai` points at any
+// OpenAI-compatible endpoint (including Ollama's /v1 API or a remote server).
 export type LLMMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -18,20 +20,24 @@ const provider = process.env.LLM_PROVIDER === "openai" ? "openai" : "ollama";
 const ollamaBase = (
   process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
 ).replace(/\/+$/, "");
-const ollamaModel = process.env.OLLAMA_MODEL || "llama3.2:3b";
 const openaiBase = (
   process.env.LLM_BASE_URL || "http://127.0.0.1:11434/v1"
 ).replace(/\/+$/, "");
-const openaiModel = process.env.LLM_MODEL || ollamaModel;
 const openaiKey = process.env.LLM_API_KEY || "";
 const numCtx = Number(process.env.LLM_NUM_CTX || 8192) || 8192;
 
-function endpoint() {
-  return provider === "openai" ? openaiBase : ollamaBase;
+export const defaultModelName =
+  process.env.OLLAMA_MODEL || process.env.LLM_MODEL || "llama3.2:3b";
+
+// The model the user selected in the UI, or the configured default.
+export async function selectedModelName(): Promise<string> {
+  if (provider === "openai") return process.env.LLM_MODEL || defaultModelName;
+  const settings = await getSettings();
+  return settings.model || defaultModelName;
 }
 
-function model() {
-  return provider === "openai" ? openaiModel : ollamaModel;
+function endpoint() {
+  return provider === "openai" ? openaiBase : ollamaBase;
 }
 
 function unreachable(error: unknown): Error {
@@ -41,30 +47,68 @@ function unreachable(error: unknown): Error {
   );
 }
 
-export function getModelConfig(): ModelConfig {
-  return { provider, model: model(), ready: false };
+// Ollama reports tags as `name:tag`; treat a bare name as its `:latest` tag.
+function sameModel(installed: string, wanted: string): boolean {
+  return installed === wanted || installed === `${wanted}:latest`;
 }
 
-export async function isModelReady(): Promise<boolean> {
+export async function listModels(): Promise<ModelInfo[]> {
+  try {
+    if (provider === "openai") {
+      const response = await fetch(`${openaiBase}/models`, {
+        headers: openaiKey ? { Authorization: `Bearer ${openaiKey}` } : {},
+        signal: AbortSignal.timeout(5000),
+        cache: "no-store",
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return (data.data ?? []).map((entry: { id?: string }) => ({
+        name: String(entry.id ?? ""),
+        size: null,
+        modifiedAt: null,
+      }));
+    }
+    const response = await fetch(`${ollamaBase}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.models ?? []).map(
+      (entry: { name?: string; size?: number; modified_at?: string }) => ({
+        name: String(entry.name ?? ""),
+        size: typeof entry.size === "number" ? entry.size : null,
+        modifiedAt: entry.modified_at ?? null,
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function isModelReady(model?: string): Promise<boolean> {
+  const wanted = model ?? (await selectedModelName());
   try {
     if (provider === "openai") {
       const response = await fetch(`${openaiBase}/models`, {
         headers: openaiKey ? { Authorization: `Bearer ${openaiKey}` } : {},
         signal: AbortSignal.timeout(3000),
+        cache: "no-store",
       });
       if (!response.ok) return false;
       const data = await response.json();
       return (data.data ?? []).some(
-        (entry: { id?: string }) => entry.id === openaiModel,
+        (entry: { id?: string }) => entry.id === wanted,
       );
     }
     const response = await fetch(`${ollamaBase}/api/tags`, {
       signal: AbortSignal.timeout(3000),
+      cache: "no-store",
     });
     if (!response.ok) return false;
     const data = await response.json();
-    return (data.models ?? []).some(
-      (entry: { name?: string }) => entry.name === ollamaModel,
+    return (data.models ?? []).some((entry: { name?: string }) =>
+      sameModel(String(entry.name ?? ""), wanted),
     );
   } catch {
     return false;
@@ -72,12 +116,48 @@ export async function isModelReady(): Promise<boolean> {
 }
 
 export async function getModelStatus(): Promise<ModelConfig> {
-  return { ...getModelConfig(), ready: await isModelReady() };
+  const model = await selectedModelName();
+  return {
+    provider,
+    model,
+    ready: await isModelReady(model),
+    defaultModel: defaultModelName,
+  };
 }
 
-function ollamaBody(messages: LLMMessage[], options: Options, stream: boolean) {
+// Downloads a model into Ollama. Blocks until the download finishes.
+export async function pullModel(name: string): Promise<string> {
+  const wanted = name.trim();
+  if (!/^[\w.\-/:]{1,80}$/.test(wanted)) {
+    throw new Error("Use a model name like llama3.2:3b or qwen2.5:3b.");
+  }
+  if (provider === "openai") {
+    throw new Error("Downloading models is only available with the Ollama provider.");
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${ollamaBase}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: wanted, stream: false }),
+    });
+  } catch (error) {
+    throw unreachable(error);
+  }
+  if (!response.ok) {
+    throw new Error(`Ollama could not download ${wanted} (${response.status}).`);
+  }
+  return wanted;
+}
+
+function ollamaBody(
+  model: string,
+  messages: LLMMessage[],
+  options: Options,
+  stream: boolean,
+) {
   return JSON.stringify({
-    model: ollamaModel,
+    model,
     messages,
     stream,
     options: {
@@ -88,9 +168,14 @@ function ollamaBody(messages: LLMMessage[], options: Options, stream: boolean) {
   });
 }
 
-function openaiBody(messages: LLMMessage[], options: Options, stream: boolean) {
+function openaiBody(
+  model: string,
+  messages: LLMMessage[],
+  options: Options,
+  stream: boolean,
+) {
   return JSON.stringify({
-    model: openaiModel,
+    model,
     messages,
     stream,
     temperature: options.temperature ?? 0.6,
@@ -98,24 +183,31 @@ function openaiBody(messages: LLMMessage[], options: Options, stream: boolean) {
   });
 }
 
-function request(messages: LLMMessage[], options: Options, stream: boolean) {
+async function request(
+  messages: LLMMessage[],
+  options: Options,
+  stream: boolean,
+): Promise<{ response: Response; model: string }> {
+  const model = await selectedModelName();
   if (provider === "openai") {
-    return fetch(`${openaiBase}/chat/completions`, {
+    const response = await fetch(`${openaiBase}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(openaiKey ? { Authorization: `Bearer ${openaiKey}` } : {}),
       },
-      body: openaiBody(messages, options, stream),
+      body: openaiBody(model, messages, options, stream),
       signal: options.signal,
     });
+    return { response, model };
   }
-  return fetch(`${ollamaBase}/api/chat`, {
+  const response = await fetch(`${ollamaBase}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: ollamaBody(messages, options, stream),
+    body: ollamaBody(model, messages, options, stream),
     signal: options.signal,
   });
+  return { response, model };
 }
 
 async function* lines(body: ReadableStream<Uint8Array>) {
@@ -167,13 +259,18 @@ export async function* streamChat(
   options: Options = {},
 ): AsyncGenerator<string> {
   let response: Response;
+  let model: string;
   try {
-    response = await request(messages, options, true);
+    ({ response, model } = await request(messages, options, true));
   } catch (error) {
     throw unreachable(error);
   }
   if (!response.ok || !response.body) {
-    throw new Error(`The local model returned ${response.status}.`);
+    throw new Error(
+      response.status === 404
+        ? `The model ${model} is not downloaded yet — pick or download it in the model settings.`
+        : `The local model returned ${response.status}.`,
+    );
   }
   for await (const line of lines(response.body)) {
     const text = chunkText(line);
@@ -186,13 +283,18 @@ export async function complete(
   options: Options = {},
 ): Promise<string> {
   let response: Response;
+  let model: string;
   try {
-    response = await request(messages, options, false);
+    ({ response, model } = await request(messages, options, false));
   } catch (error) {
     throw unreachable(error);
   }
   if (!response.ok) {
-    throw new Error(`The local model returned ${response.status}.`);
+    throw new Error(
+      response.status === 404
+        ? `The model ${model} is not downloaded yet — pick or download it in the model settings.`
+        : `The local model returned ${response.status}.`,
+    );
   }
   const data = await response.json();
   const text =

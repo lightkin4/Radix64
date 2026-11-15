@@ -7,6 +7,15 @@ export type ChatMessage = {
   createdAt: string;
 };
 
+export type RepoSummary = {
+  owner: string;
+  repo: string;
+  branch: string;
+  url: string;
+  fileCount: number;
+  filesRead: number;
+};
+
 export type AppSummary = {
   id: string;
   name: string;
@@ -15,6 +24,7 @@ export type AppSummary = {
   version: number;
   building: boolean;
   hasPreview: boolean;
+  repo: RepoSummary | null;
 };
 
 export type AppDetail = AppSummary & { messages: ChatMessage[] };
@@ -34,4 +44,26 @@ export type ModelConfig = {
   provider: string;
   model: string;
   ready: boolean;
+  defaultModel: string;
+};
+
+export type ModelInfo = {
+  name: string;
+  size: number | null;
+  modifiedAt: string | null;
+};
+
+export type ModelCatalog = {
+  provider: string;
+  models: ModelInfo[];
+  selected: string;
+  defaultModel: string;
+  ready: boolean;
+};
+
+export type SettingsView = {
+  model: string | null;
+  defaultModel: string;
+  provider: string;
+  hasGithubToken: boolean;
 };

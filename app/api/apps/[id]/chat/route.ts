@@ -1,6 +1,12 @@
 import { complete, isModelReady, streamChat } from "@/lib/llm";
 import { buildMessages, extractHtml, replyMessages } from "@/lib/prompts";
-import { failTurn, finishTurn, getAppHtml, startTurn } from "@/lib/store";
+import {
+  failTurn,
+  finishTurn,
+  getAppHtml,
+  getAppRepo,
+  startTurn,
+} from "@/lib/store";
 import type { ChatEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -41,10 +47,13 @@ export async function POST(
       const step = (label: string, status: "running" | "done" | "error") =>
         send({ type: "step", label, status });
       let building = false;
+      let buildLabel = "Writing your app";
 
       try {
         send({ type: "message", message: turn.message });
         const html = await getAppHtml(id);
+        // A repo import has no build yet: the first turn rebuilds it from source.
+        const repo = html ? null : await getAppRepo(id);
 
         step("Thinking", "running");
         let reply = "";
@@ -57,9 +66,11 @@ export async function POST(
         }
         step("Thinking", "done");
 
-        step("Writing your app", "running");
+        const buildStep = repo ? "Reading the repository" : "Writing your app";
+        buildLabel = buildStep;
+        step(buildStep, "running");
         building = true;
-        const generated = await complete(buildMessages(prompt, html), {
+        const generated = await complete(buildMessages(prompt, html, repo), {
           numPredict: 2600,
           temperature: 0.4,
           signal: request.signal,
@@ -74,7 +85,7 @@ export async function POST(
           reply.trim() || "Your app is ready.",
         );
         building = false;
-        step("Writing your app", "done");
+        step(buildStep, "done");
         if (version !== null) send({ type: "build", version });
         send({ type: "done" });
       } catch (error) {
@@ -82,7 +93,7 @@ export async function POST(
           error instanceof Error
             ? error.message
             : "Something went wrong while building your app.";
-        step("Writing your app", building ? "error" : "done");
+        step(buildLabel, building ? "error" : "done");
         send({ type: "error", message });
         await failTurn(id, message);
       } finally {

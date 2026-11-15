@@ -2,7 +2,9 @@ import type {
   AppDetail,
   AppSummary,
   ChatEvent,
+  ModelCatalog,
   ModelConfig,
+  SettingsView,
 } from "./types";
 
 async function failure(response: Response): Promise<Error> {
@@ -36,6 +38,54 @@ export async function getModelConfig(): Promise<ModelConfig> {
   const response = await fetch("/api/config", { cache: "no-store" });
   if (!response.ok) throw await failure(response);
   return response.json();
+}
+
+export async function getModelCatalog(): Promise<ModelCatalog> {
+  const response = await fetch("/api/models", { cache: "no-store" });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+export async function pullModel(name: string): Promise<void> {
+  const response = await fetch("/api/models/pull", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) throw await failure(response);
+}
+
+export async function getSettings(): Promise<SettingsView> {
+  const response = await fetch("/api/settings", { cache: "no-store" });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+export async function saveSettings(patch: {
+  model?: string | null;
+  githubToken?: string | null;
+}): Promise<SettingsView> {
+  const response = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+export async function importRepo(input: {
+  url: string;
+  branch?: string;
+  token?: string;
+}): Promise<AppSummary> {
+  const response = await fetch("/api/github/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await failure(response);
+  return (await response.json()).app;
 }
 
 // Streams one chat turn as newline-delimited JSON events.

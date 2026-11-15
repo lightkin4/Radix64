@@ -20,6 +20,9 @@ type Props = {
   appId: string | null;
   onAppCreated: (app: AppSummary) => void;
   onBuild: (version: number) => void;
+  // Sent automatically after a repository import.
+  kickoff?: { appId: string; text: string } | null;
+  onKickoffConsumed?: () => void;
 };
 
 function toItem(message: ChatMessage): Item {
@@ -27,9 +30,16 @@ function toItem(message: ChatMessage): Item {
 }
 
 // Chat with the self-hosted API: one turn streams a reply, then a fresh build.
-export default function Chat({ appId, onAppCreated, onBuild }: Props) {
+export default function Chat({
+  appId,
+  onAppCreated,
+  onBuild,
+  kickoff = null,
+  onKickoffConsumed,
+}: Props) {
   const [activeId, setActiveId] = useState<string | null>(appId);
   const [items, setItems] = useState<Item[]>([]);
+  const [repo, setRepo] = useState<AppSummary["repo"]>(null);
   const [live, setLive] = useState<{ text: string; steps: Step[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("ready");
@@ -48,6 +58,7 @@ export default function Chat({ appId, onAppCreated, onBuild }: Props) {
     request.current?.abort();
     setActiveId(appId);
     setItems([]);
+    setRepo(null);
     setError(null);
     if (!appId) {
       setStatus("ready");
@@ -59,6 +70,7 @@ export default function Chat({ appId, onAppCreated, onBuild }: Props) {
       (app) => {
         if (cancelled) return;
         setItems(app.messages.map(toItem));
+        setRepo(app.repo);
         setStatus("ready");
       },
       (cause: Error) => {
@@ -101,8 +113,8 @@ export default function Chat({ appId, onAppCreated, onBuild }: Props) {
     return current;
   }
 
-  async function submit() {
-    const text = prompt.trim();
+  async function submit(textOverride?: string) {
+    const text = (textOverride ?? prompt).trim();
     if (!text || status === "building" || status === "submitted" || status === "loading")
       return;
     setPrompt("");
@@ -172,6 +184,15 @@ export default function Chat({ appId, onAppCreated, onBuild }: Props) {
     }
   }
 
+  // A repository import hands over a first prompt once the new app is loaded.
+  useEffect(() => {
+    if (!kickoff || kickoff.appId !== activeId) return;
+    if (status !== "ready") return;
+    onKickoffConsumed?.();
+    submit(kickoff.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kickoff, activeId, status]);
+
   const canSend =
     status === "ready" || status === "error" ? true : false;
 
@@ -189,6 +210,12 @@ export default function Chat({ appId, onAppCreated, onBuild }: Props) {
     <div className="chat">
       <StickToBottom className="chat-scroll" initial="instant">
         <StickToBottom.Content className="chat-messages">
+          {repo && (
+            <p className="repo-note">
+              Reading from {repo.owner}/{repo.repo} · branch {repo.branch} ·{" "}
+              {repo.filesRead} {repo.filesRead === 1 ? "file" : "files"} read
+            </p>
+          )}
           {items.map((item) => (
             <div key={item.id} className="chat-message">
               <Message item={item} />
@@ -235,7 +262,7 @@ export default function Chat({ appId, onAppCreated, onBuild }: Props) {
           rows={1}
         />
         <Button
-          onClick={submit}
+          onClick={() => submit()}
           disabled={!canSend || !prompt.trim()}
           className="bg-green-700 hover:bg-green-600 text-white"
         >

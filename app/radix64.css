@@ -14,8 +14,15 @@
   @apply data-[orientation=vertical]:h-5 bg-green-700;
 }
 
+.header-actions {
+  @apply ml-auto flex items-center gap-2;
+}
+.header-button {
+  @apply h-8 gap-1.5 px-2 text-xs text-green-200 hover:bg-green-900 hover:text-green-50;
+}
+
 .model-badge {
-  @apply ml-auto rounded-full border border-green-700 px-2.5 py-1 text-xs text-green-200;
+  @apply rounded-full border border-green-700 px-2.5 py-1 text-xs text-green-200;
 }
 .model-badge[data-ready="false"] {
   @apply border-amber-600 text-amber-200;
@@ -118,4 +125,52 @@
 }
 .question-actions {
   @apply flex gap-2;
+}
+
+.repo-note {
+  @apply rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800;
+}
+
+/* ── Modals (model settings, GitHub import) ─────────────────────── */
+.modal-backdrop {
+  @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4;
+}
+.modal {
+  @apply flex w-full max-w-lg flex-col gap-4 rounded-lg border bg-white p-5 text-sm shadow-xl;
+}
+.modal-title {
+  @apply text-base font-semibold text-green-900;
+}
+.modal-subtitle {
+  @apply mt-1 text-xs text-green-700;
+}
+.modal-row {
+  @apply flex flex-1 flex-col gap-1.5;
+}
+.modal-label {
+  @apply text-xs font-medium text-green-900;
+}
+.modal-hint {
+  @apply text-xs text-green-700;
+}
+.modal-inline {
+  @apply flex gap-2;
+}
+.modal-error {
+  @apply rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700;
+}
+.modal-ok {
+  @apply rounded border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-800;
+}
+.modal-actions {
+  @apply flex justify-end gap-2;
+}
+.model-select {
+  @apply w-full;
+}
+.model-name {
+  @apply font-mono text-xs;
+}
+.model-size {
+  @apply ml-2 text-xs text-green-600;
 }

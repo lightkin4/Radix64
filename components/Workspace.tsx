@@ -1,15 +1,24 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { listApps } from "@/lib/api";
+import { getSettings, listApps } from "@/lib/api";
 import type { AppSummary } from "@/lib/types";
 import AppPreview from "./AppPreview";
 import Chat from "./Chat";
+import GithubImport from "./GithubImport";
 import Header from "./Header";
+import ModelSettings from "./ModelSettings";
 
 export default function Workspace() {
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [appId, setAppId] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [showModels, setShowModels] = useState(false);
+  const [showGithub, setShowGithub] = useState(false);
+  const [hasToken, setHasToken] = useState(false);
+  const [modelVersion, setModelVersion] = useState(0);
+  const [kickoff, setKickoff] = useState<{ appId: string; text: string } | null>(
+    null,
+  );
   const app = apps.find((candidate) => candidate.id === appId) ?? null;
 
   useEffect(() => {
@@ -30,11 +39,56 @@ export default function Workspace() {
     setVersion(created.version);
   }
 
+  function onRepoImported(imported: AppSummary) {
+    onAppCreated(imported);
+    // The first chat turn reads the repository and rebuilds the app from it.
+    setKickoff({
+      appId: imported.id,
+      text: "Rebuild this app from the connected repository.",
+    });
+  }
+
+  async function openGithub() {
+    try {
+      setHasToken((await getSettings()).hasGithubToken);
+    } catch {
+      // The dialog still works; a token is only needed for private repos.
+    }
+    setShowGithub(true);
+  }
+
   return (
     <div className="workspace">
-      <Header apps={apps} selectedAppId={appId} onSelectApp={selectApp} />
+      <Header
+        apps={apps}
+        selectedAppId={appId}
+        onSelectApp={selectApp}
+        onOpenModels={() => setShowModels(true)}
+        onOpenGithub={openGithub}
+        modelVersion={modelVersion}
+      />
       <AppPreview key={`preview-${appId}`} app={app} version={version} />
-      <Chat appId={appId} onAppCreated={onAppCreated} onBuild={setVersion} />
+      <Chat
+        appId={appId}
+        onAppCreated={onAppCreated}
+        onBuild={setVersion}
+        kickoff={kickoff}
+        onKickoffConsumed={() => setKickoff(null)}
+      />
+
+      {showModels && (
+        <ModelSettings
+          onClose={() => setShowModels(false)}
+          onSaved={() => setModelVersion((count) => count + 1)}
+        />
+      )}
+      {showGithub && (
+        <GithubImport
+          hasToken={hasToken}
+          onClose={() => setShowGithub(false)}
+          onImported={onRepoImported}
+        />
+      )}
     </div>
   );
 }

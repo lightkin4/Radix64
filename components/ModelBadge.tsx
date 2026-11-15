@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { getModelConfig } from "@/lib/api";
 import type { ModelConfig } from "@/lib/types";
 
-// Shows which model answers the chat, and whether the local llama is loaded yet.
-export default function ModelBadge() {
+// Shows which model answers the chat, and whether it is downloaded yet.
+export default function ModelBadge({ refreshKey = 0 }: { refreshKey?: number }) {
   const [config, setConfig] = useState<ModelConfig | null>(null);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function ModelBadge() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, []);
+  }, [refreshKey]);
 
   const label = !config
     ? "local model"

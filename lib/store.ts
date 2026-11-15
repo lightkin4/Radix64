@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppDetail, AppSummary, ChatMessage, Role } from "./types";
+import type { RepoSnapshot } from "./github";
 
 // Single-file JSON store. Radix64 runs as one Node process, so serializing
 // mutations through a promise chain is enough to keep the file consistent.
@@ -17,6 +18,7 @@ type StoredApp = {
   building: boolean;
   html: string | null;
   messages: ChatMessage[];
+  repo: RepoSnapshot | null;
 };
 type Db = { apps: StoredApp[] };
 
@@ -54,6 +56,16 @@ function summarize(app: StoredApp): AppSummary {
     version: app.version,
     building: app.building,
     hasPreview: app.html !== null,
+    repo: app.repo
+      ? {
+          owner: app.repo.owner,
+          repo: app.repo.repo,
+          branch: app.repo.branch,
+          url: app.repo.url,
+          fileCount: app.repo.files.length,
+          filesRead: app.repo.contents.length,
+        }
+      : null,
   };
 }
 
@@ -78,6 +90,14 @@ export function getApp(id: string): Promise<AppDetail | null> {
   });
 }
 
+// The repository an app was imported from, with the file text the build reads.
+export function getAppRepo(id: string): Promise<RepoSnapshot | null> {
+  return enqueue(async () => {
+    const { apps } = await readDb();
+    return apps.find((candidate) => candidate.id === id)?.repo ?? null;
+  });
+}
+
 export function getAppHtml(id: string): Promise<string | null> {
   return enqueue(async () => {
     const { apps } = await readDb();
@@ -85,7 +105,10 @@ export function getAppHtml(id: string): Promise<string | null> {
   });
 }
 
-export function createApp(name: string): Promise<AppSummary> {
+export function createApp(
+  name: string,
+  repo: RepoSnapshot | null = null,
+): Promise<AppSummary> {
   return enqueue(async () => {
     const db = await readDb();
     const now = new Date().toISOString();
@@ -98,6 +121,7 @@ export function createApp(name: string): Promise<AppSummary> {
       building: false,
       html: null,
       messages: [],
+      repo,
     };
     db.apps.push(app);
     await writeDb(db);

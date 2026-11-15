@@ -1,5 +1,6 @@
 import type { ChatMessage } from "./types";
 import type { LLMMessage } from "./llm";
+import type { RepoSnapshot } from "./github";
 
 export const REPLY_SYSTEM = `You are Radix64, an AI app builder. The user describes or edits a small web app and you build it for them.
 Rules:
@@ -50,10 +51,42 @@ export function replyMessages(
   ];
 }
 
-export function buildMessages(prompt: string, html: string | null): LLMMessage[] {
+// Compact view of a connected repository: the tree plus the most useful files.
+export function repoContext(repo: RepoSnapshot, budget = 14_000): string {
+  const tree = repo.files
+    .slice(0, 120)
+    .map((file) => file.path)
+    .join("\n");
+  const parts: string[] = [
+    `Connected GitHub repository: ${repo.owner}/${repo.repo} (branch ${repo.branch}).`,
+    repo.description ? `Repository description: ${repo.description}` : "",
+    repo.language ? `Main language: ${repo.language}.` : "",
+    `Files in the repository (${repo.files.length}):\n${tree}`,
+    "Source files:",
+  ];
+  let used = 0;
+  for (const file of repo.contents) {
+    if (used >= budget) {
+      parts.push("[remaining files omitted to fit the context window]");
+      break;
+    }
+    const content = file.content.slice(0, Math.min(4000, budget - used));
+    used += content.length;
+    parts.push(`--- ${file.path} ---\n${content}`);
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
+
+export function buildMessages(
+  prompt: string,
+  html: string | null,
+  repo: RepoSnapshot | null = null,
+): LLMMessage[] {
   const existing = html
     ? `Current app HTML:\n\n${html}\n\nChange requested: ${prompt}\n\nReturn the complete updated HTML document. Keep everything that already works unless the change asks otherwise.`
-    : `Build this app: ${prompt}\n\nReturn the complete HTML document.`;
+    : repo
+      ? `Rebuild the app from this GitHub repository as one self-contained HTML document.\n\n${repoContext(repo)}\n\nRequest: ${prompt}\n\nKeep the repository's purpose, content, screens, wording and visual identity. Turn its real data, routes and interactions into working inline HTML, CSS and JavaScript so the result works on its own without the original build tooling, server or dependencies. Return the complete HTML document.`
+      : `Build this app: ${prompt}\n\nReturn the complete HTML document.`;
   return [
     { role: "system", content: BUILD_SYSTEM },
     { role: "user", content: existing },
