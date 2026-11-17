@@ -1,4 +1,4 @@
-import { GithubIcon, SlidersHorizontalIcon } from "lucide-react";
+import { GithubIcon, SlidersHorizontalIcon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { AppSummary } from "@/lib/types";
@@ -11,6 +11,7 @@ type Props = {
   onSelectApp: (id: string | null) => void;
   onOpenModels: () => void;
   onOpenGithub: () => void;
+  onOpenTerminal: () => void;
   modelVersion: number;
 };
 
@@ -20,6 +21,7 @@ export default function Header({
   onSelectApp,
   onOpenModels,
   onOpenGithub,
+  onOpenTerminal,
   modelVersion,
 }: Props) {
   return (
@@ -41,6 +43,15 @@ export default function Header({
         >
           <GithubIcon />
           Read a repo
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="header-button"
+          onClick={onOpenTerminal}
+        >
+          <TerminalIcon />
+          Terminal
         </Button>
         <Button
           variant="ghost"

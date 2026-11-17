@@ -57,6 +57,7 @@ Each app keeps its chat history and latest build in a small JSON store (`DATA_DI
 | `GET /api/config` | Active model provider and readiness |
 | `GET /api/models` | Models installed in Ollama, plus the selected one |
 | `POST /api/models/pull` | Download another model by `{ name }` |
+| `POST /api/terminal` | Run one terminal command, streamed as NDJSON |
 | `GET` / `PUT /api/settings` | Selected model and whether a GitHub token is stored |
 | `POST /api/github/import` | Read a repository (`{ url, branch?, token? }`) into a new app |
 
@@ -65,6 +66,27 @@ Each app keeps its chat history and latest build in a small JSON store (`DATA_DI
 Click **Model** in the header to pick any model installed in Ollama, or type a name
 such as `qwen2.5:3b` and download it. The choice is saved in `DATA_DIR/settings.json`
 and overrides `OLLAMA_MODEL`; the header badge always shows the model in use.
+
+## Terminal
+
+Click **Terminal** in the header to open a console managed by the Radix64 server. It
+talks to the local Ollama API on the compose network — there is no shell — and keeps a
+command history you can walk with the arrow keys:
+
+| Command | What it does |
+|---|---|
+| `status` | Reachability, Ollama version and the model in use |
+| `models` | Models installed in Ollama |
+| `ps` | Models currently loaded in memory |
+| `show <model>` | Family, parameter size, quantization, capabilities |
+| `ask <prompt>` | Chat with the selected model, streamed |
+| `run <model> <prompt>` | Chat with a specific model, streamed |
+| `pull <model>` | Download a model with progress |
+| `version` | Ollama server version |
+| `clear` / `help` | Clear the screen / list commands |
+
+Chat and downloads run without a connect deadline, because Ollama answers only after
+the prompt is evaluated and a model can take minutes to load.
 
 ## Building from a GitHub repository
 
@@ -80,7 +102,7 @@ screens and behaviour.
 | Variable | Description |
 |---|---|
 | `LLM_PROVIDER` | `ollama` (default) or `openai` for any OpenAI-compatible endpoint |
-| `OLLAMA_BASE_URL` | Ollama server, default `http://127.0.0.1:11434` |
+| `OLLAMA_BASE_URL` | Ollama server. Comma-separated addresses are tried in order; defaults to `http://ollama:11434`, then `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | Model used for chat and builds, default `llama3.2:3b` |
 | `LLM_NUM_CTX` | Context window, default `8192` |
 | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | Only for `LLM_PROVIDER=openai` |

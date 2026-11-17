@@ -5,11 +5,38 @@ import type {
   ModelCatalog,
   ModelConfig,
   SettingsView,
+  TerminalEvent,
 } from "./types";
 
 async function failure(response: Response): Promise<Error> {
   const data = await response.json().catch(() => null);
   return new Error(data?.error || `Request failed (${response.status}).`);
+}
+
+// Reads one of our newline-delimited JSON streams.
+async function* readEvents<T>(response: Response): AsyncGenerator<T> {
+  if (!response.ok || !response.body) throw await failure(response);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index: number;
+      while ((index = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        if (line) yield JSON.parse(line) as T;
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) yield JSON.parse(buffer) as T;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export async function listApps(): Promise<AppSummary[]> {
@@ -101,26 +128,20 @@ export async function* streamChat(
     cache: "no-store",
     signal,
   });
-  if (!response.ok || !response.body) throw await failure(response);
+  yield* readEvents<ChatEvent>(response);
+}
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let index: number;
-      while ((index = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        if (line) yield JSON.parse(line) as ChatEvent;
-      }
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) yield JSON.parse(buffer) as ChatEvent;
-  } finally {
-    reader.releaseLock();
-  }
+// Runs one command in the Radix64 terminal, streamed as NDJSON events.
+export async function* streamTerminal(
+  command: string,
+  signal: AbortSignal,
+): AsyncGenerator<TerminalEvent> {
+  const response = await fetch("/api/terminal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command }),
+    cache: "no-store",
+    signal,
+  });
+  yield* readEvents<TerminalEvent>(response);
 }

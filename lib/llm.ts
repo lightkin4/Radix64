@@ -1,10 +1,14 @@
 import type { ModelConfig, ModelInfo } from "./types";
 import { getSettings } from "./settings";
+import { readLines } from "./ndjson";
+import { ollamaCandidates, ollamaFetch } from "./ollama";
 
 // Self-hosted LLM access. The default provider is a local Ollama server; the
 // model is whatever the user picked in the model settings, falling back to
 // OLLAMA_MODEL (llama3.2:3b). `LLM_PROVIDER=openai` points at any
 // OpenAI-compatible endpoint (including Ollama's /v1 API or a remote server).
+// Ollama is reached over the compose network through lib/ollama, which retries
+// the configured and network addresses instead of failing on the first refusal.
 export type LLMMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -17,9 +21,6 @@ type Options = {
 };
 
 const provider = process.env.LLM_PROVIDER === "openai" ? "openai" : "ollama";
-const ollamaBase = (
-  process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"
-).replace(/\/+$/, "");
 const openaiBase = (
   process.env.LLM_BASE_URL || "http://127.0.0.1:11434/v1"
 ).replace(/\/+$/, "");
@@ -36,10 +37,6 @@ export async function selectedModelName(): Promise<string> {
   return settings.model || defaultModelName;
 }
 
-function endpoint() {
-  return provider === "openai" ? openaiBase : ollamaBase;
-}
-
 function unreachable(error: unknown): Error {
   if (error instanceof Error && error.name === "AbortError") return error;
   const code = (error as { cause?: { code?: string } })?.cause?.code ?? "";
@@ -51,7 +48,9 @@ function unreachable(error: unknown): Error {
       "The local model took too long to answer. Try again, or pick a smaller model in the model settings.",
     );
   return new Error(
-    `Cannot reach the local model at ${endpoint()} — check the Ollama service.`,
+    provider === "openai"
+      ? `Cannot reach the model server at ${openaiBase} — check LLM_BASE_URL.`
+      : `Cannot reach the Ollama server — tried ${ollamaCandidates().join(", ")}. It may still be starting; try again in a moment.`,
   );
 }
 
@@ -76,10 +75,11 @@ export async function listModels(): Promise<ModelInfo[]> {
         modifiedAt: null,
       }));
     }
-    const response = await fetch(`${ollamaBase}/api/tags`, {
-      signal: AbortSignal.timeout(5000),
-      cache: "no-store",
-    });
+    const response = await ollamaFetch(
+      "/api/tags",
+      { cache: "no-store" },
+      { retries: 2, connectTimeoutMs: 3000 },
+    );
     if (!response.ok) return [];
     const data = await response.json();
     return (data.models ?? []).map(
@@ -109,10 +109,11 @@ export async function isModelReady(model?: string): Promise<boolean> {
         (entry: { id?: string }) => entry.id === wanted,
       );
     }
-    const response = await fetch(`${ollamaBase}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
-      cache: "no-store",
-    });
+    const response = await ollamaFetch(
+      "/api/tags",
+      { cache: "no-store" },
+      { retries: 1, connectTimeoutMs: 2500 },
+    );
     if (!response.ok) return false;
     const data = await response.json();
     return (data.models ?? []).some((entry: { name?: string }) =>
@@ -144,13 +145,17 @@ export async function pullModel(name: string): Promise<string> {
   }
   let response: Response;
   try {
-    response = await fetch(`${ollamaBase}/api/pull`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // Streamed: a multi-gigabyte download keeps sending progress, so Node's
-      // fetch never treats the socket as idle and gives up after five minutes.
-      body: JSON.stringify({ name: wanted, stream: true }),
-    });
+    response = await ollamaFetch(
+      "/api/pull",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Streamed: a multi-gigabyte download keeps sending progress, so Node's
+        // fetch never treats the socket as idle and gives up after five minutes.
+        body: JSON.stringify({ name: wanted, stream: true }),
+      },
+      { retries: 1, connectTimeoutMs: 0 },
+    );
   } catch (error) {
     throw unreachable(error);
   }
@@ -158,7 +163,7 @@ export async function pullModel(name: string): Promise<string> {
     throw new Error(`Ollama could not download ${wanted} (${response.status}).`);
   }
   if (response.body) {
-    for await (const line of lines(response.body)) {
+    for await (const line of readLines(response.body)) {
       let reported = "";
       try {
         reported = String(JSON.parse(line).error ?? "");
@@ -223,36 +228,18 @@ async function request(
     });
     return { response, model };
   }
-  const response = await fetch(`${ollamaBase}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: ollamaBody(model, messages, options),
-    signal: options.signal,
-  });
+  const response = await ollamaFetch(
+    "/api/chat",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: ollamaBody(model, messages, options),
+      signal: options.signal,
+    },
+    // No connect deadline: Ollama answers only after the prompt is evaluated.
+    { retries: 2, connectTimeoutMs: 0 },
+  );
   return { response, model };
-}
-
-async function* lines(body: ReadableStream<Uint8Array>) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let index: number;
-      while ((index = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        if (line) yield line;
-      }
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) yield buffer.trim();
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 function chunkText(line: string): string {
@@ -294,7 +281,7 @@ export async function* streamChat(
         : `The local model returned ${response.status}.`,
     );
   }
-  for await (const line of lines(response.body)) {
+  for await (const line of readLines(response.body)) {
     const text = chunkText(line);
     if (text) yield text;
   }

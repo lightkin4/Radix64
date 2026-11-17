@@ -40,6 +40,13 @@ export type ChatEvent =
 
 export type StepStatus = "running" | "done" | "error";
 
+// Radix64 terminal events, newline-delimited JSON from POST /api/terminal.
+export type TerminalEvent =
+  | { type: "line"; text: string }
+  | { type: "delta"; text: string }
+  | { type: "error"; text: string }
+  | { type: "done"; code: number };
+
 export type ModelConfig = {
   provider: string;
   model: string;

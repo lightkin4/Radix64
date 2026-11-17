@@ -174,3 +174,62 @@
 .model-size {
   @apply ml-2 text-xs text-green-600;
 }
+
+/* ── Terminal (server-managed Ollama console) ───────────────────── */
+.terminal-backdrop {
+  @apply fixed inset-0 z-50 bg-black/40;
+}
+.terminal {
+  @apply absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l border-green-800 bg-green-950 text-green-100 shadow-2xl;
+}
+.terminal-head {
+  @apply flex items-start gap-2 border-b border-green-800 px-4 py-3;
+}
+.terminal-title {
+  @apply text-sm font-semibold text-green-200;
+}
+.terminal-subtitle {
+  @apply text-xs text-green-400;
+}
+.terminal-actions {
+  @apply ml-auto flex items-center gap-1;
+}
+.terminal-button {
+  @apply h-8 px-2 text-xs text-green-200 hover:bg-green-900 hover:text-green-50;
+}
+.terminal-quick {
+  @apply flex flex-wrap gap-1.5 border-b border-green-900 px-4 py-2;
+}
+.terminal-chip {
+  @apply rounded border border-green-800 px-2 py-0.5 font-mono text-xs text-green-300 hover:bg-green-900 hover:text-green-50 disabled:opacity-40;
+}
+.terminal-scroll {
+  @apply min-h-0 flex-1 overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed;
+}
+.terminal-line {
+  @apply whitespace-pre-wrap break-words;
+}
+.terminal-line[data-kind="cmd"] {
+  @apply mt-2 text-green-300;
+}
+.terminal-line[data-kind="out"] {
+  @apply text-green-100;
+}
+.terminal-line[data-kind="err"] {
+  @apply text-red-300;
+}
+.terminal-line[data-kind="note"] {
+  @apply text-green-500;
+}
+.terminal-cursor {
+  @apply text-green-400;
+}
+.terminal-input-row {
+  @apply flex items-center gap-2 border-t border-green-800 px-4 py-3;
+}
+.terminal-prompt {
+  @apply font-mono text-xs text-green-400;
+}
+.terminal-input {
+  @apply min-w-0 flex-1 border-0 bg-transparent font-mono text-xs text-green-50 outline-none placeholder:text-green-600 disabled:opacity-50;
+}

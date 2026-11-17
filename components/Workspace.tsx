@@ -7,6 +7,7 @@ import Chat from "./Chat";
 import GithubImport from "./GithubImport";
 import Header from "./Header";
 import ModelSettings from "./ModelSettings";
+import Terminal from "./Terminal";
 
 export default function Workspace() {
   const [apps, setApps] = useState<AppSummary[]>([]);
@@ -14,6 +15,7 @@ export default function Workspace() {
   const [version, setVersion] = useState(0);
   const [showModels, setShowModels] = useState(false);
   const [showGithub, setShowGithub] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [modelVersion, setModelVersion] = useState(0);
   const [kickoff, setKickoff] = useState<{ appId: string; text: string } | null>(
@@ -73,6 +75,7 @@ export default function Workspace() {
         onSelectApp={selectApp}
         onOpenModels={() => setShowModels(true)}
         onOpenGithub={openGithub}
+        onOpenTerminal={() => setShowTerminal(true)}
         modelVersion={modelVersion}
       />
       <AppPreview key={`preview-${appId}`} app={app} version={version} />
@@ -96,6 +99,9 @@ export default function Workspace() {
           onClose={() => setShowGithub(false)}
           onImported={onRepoImported}
         />
+      )}
+      {showTerminal && (
+        <Terminal onClose={() => setShowTerminal(false)} />
       )}
     </div>
   );
