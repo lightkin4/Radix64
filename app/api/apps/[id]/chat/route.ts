@@ -39,6 +39,17 @@ export async function POST(
       { status: 409 },
     );
 
+  // If the browser goes away mid-turn (reload, stop, closed tab) the stream
+  // never runs its catch, which used to leave the app stuck "building" and
+  // refusing every later message. Release the turn from the abort instead.
+  let settled = false;
+  const stopTurn = () => {
+    if (settled) return;
+    settled = true;
+    void failTurn(id, "The turn was stopped before it finished.");
+  };
+  request.signal.addEventListener("abort", stopTurn);
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -84,18 +95,26 @@ export async function POST(
           document,
           reply.trim() || "Your app is ready.",
         );
+        settled = true;
         building = false;
         step(buildStep, "done");
         if (version !== null) send({ type: "build", version });
         send({ type: "done" });
       } catch (error) {
-        const message =
-          error instanceof Error
+        // A browser that navigated away or pressed stop is not a model failure:
+        // say so plainly instead of reporting a connection error.
+        const stopped = request.signal.aborted;
+        const message = stopped
+          ? "The turn was stopped before it finished."
+          : error instanceof Error
             ? error.message
             : "Something went wrong while building your app.";
         step(buildLabel, building ? "error" : "done");
-        send({ type: "error", message });
-        await failTurn(id, message);
+        if (!stopped) send({ type: "error", message });
+        if (!settled) {
+          settled = true;
+          await failTurn(id, message);
+        }
       } finally {
         controller.close();
       }

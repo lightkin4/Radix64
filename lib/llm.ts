@@ -42,6 +42,14 @@ function endpoint() {
 
 function unreachable(error: unknown): Error {
   if (error instanceof Error && error.name === "AbortError") return error;
+  const code = (error as { cause?: { code?: string } })?.cause?.code ?? "";
+  if (
+    (error instanceof Error && error.name === "TimeoutError") ||
+    code.includes("TIMEOUT")
+  )
+    return new Error(
+      "The local model took too long to answer. Try again, or pick a smaller model in the model settings.",
+    );
   return new Error(
     `Cannot reach the local model at ${endpoint()} — check the Ollama service.`,
   );
@@ -139,7 +147,9 @@ export async function pullModel(name: string): Promise<string> {
     response = await fetch(`${ollamaBase}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: wanted, stream: false }),
+      // Streamed: a multi-gigabyte download keeps sending progress, so Node's
+      // fetch never treats the socket as idle and gives up after five minutes.
+      body: JSON.stringify({ name: wanted, stream: true }),
     });
   } catch (error) {
     throw unreachable(error);
@@ -147,19 +157,33 @@ export async function pullModel(name: string): Promise<string> {
   if (!response.ok) {
     throw new Error(`Ollama could not download ${wanted} (${response.status}).`);
   }
+  if (response.body) {
+    for await (const line of lines(response.body)) {
+      let reported = "";
+      try {
+        reported = String(JSON.parse(line).error ?? "");
+      } catch {
+        reported = "";
+      }
+      if (reported)
+        throw new Error(`Ollama could not download ${wanted}: ${reported}`);
+    }
+  }
   return wanted;
 }
 
+// Every model call streams: Ollama sends the first token only after the prompt
+// is evaluated, so a non-streamed reply can sit silent for minutes and Node's
+// fetch aborts it. Callers that need the whole text join the deltas.
 function ollamaBody(
   model: string,
   messages: LLMMessage[],
   options: Options,
-  stream: boolean,
 ) {
   return JSON.stringify({
     model,
     messages,
-    stream,
+    stream: true,
     options: {
       temperature: options.temperature ?? 0.6,
       num_predict: options.numPredict ?? 512,
@@ -172,12 +196,11 @@ function openaiBody(
   model: string,
   messages: LLMMessage[],
   options: Options,
-  stream: boolean,
 ) {
   return JSON.stringify({
     model,
     messages,
-    stream,
+    stream: true,
     temperature: options.temperature ?? 0.6,
     max_tokens: options.numPredict ?? 512,
   });
@@ -186,7 +209,6 @@ function openaiBody(
 async function request(
   messages: LLMMessage[],
   options: Options,
-  stream: boolean,
 ): Promise<{ response: Response; model: string }> {
   const model = await selectedModelName();
   if (provider === "openai") {
@@ -196,7 +218,7 @@ async function request(
         "Content-Type": "application/json",
         ...(openaiKey ? { Authorization: `Bearer ${openaiKey}` } : {}),
       },
-      body: openaiBody(model, messages, options, stream),
+      body: openaiBody(model, messages, options),
       signal: options.signal,
     });
     return { response, model };
@@ -204,7 +226,7 @@ async function request(
   const response = await fetch(`${ollamaBase}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: ollamaBody(model, messages, options, stream),
+    body: ollamaBody(model, messages, options),
     signal: options.signal,
   });
   return { response, model };
@@ -261,7 +283,7 @@ export async function* streamChat(
   let response: Response;
   let model: string;
   try {
-    ({ response, model } = await request(messages, options, true));
+    ({ response, model } = await request(messages, options));
   } catch (error) {
     throw unreachable(error);
   }
@@ -278,29 +300,14 @@ export async function* streamChat(
   }
 }
 
+// The whole reply as one string, streamed underneath so a long build keeps the
+// connection alive instead of timing out.
 export async function complete(
   messages: LLMMessage[],
   options: Options = {},
 ): Promise<string> {
-  let response: Response;
-  let model: string;
-  try {
-    ({ response, model } = await request(messages, options, false));
-  } catch (error) {
-    throw unreachable(error);
-  }
-  if (!response.ok) {
-    throw new Error(
-      response.status === 404
-        ? `The model ${model} is not downloaded yet — pick or download it in the model settings.`
-        : `The local model returned ${response.status}.`,
-    );
-  }
-  const data = await response.json();
-  const text =
-    provider === "openai"
-      ? (data.choices?.[0]?.message?.content ?? "")
-      : (data.message?.content ?? "");
+  let text = "";
+  for await (const delta of streamChat(messages, options)) text += delta;
   if (!text.trim()) throw new Error("The local model returned an empty reply.");
   return text;
 }

@@ -22,7 +22,15 @@ export default function Workspace() {
   const app = apps.find((candidate) => candidate.id === appId) ?? null;
 
   useEffect(() => {
-    listApps().then(setApps, console.error);
+    listApps().then((all) => {
+      setApps(all);
+      // Open the most recently edited app so its preview is on screen at start
+      // instead of the empty placeholder.
+      const latest = all[0];
+      if (!latest) return;
+      setAppId((current) => current ?? latest.id);
+      setVersion((current) => current || latest.version);
+    }, console.error);
   }, []);
 
   const selectApp = useCallback(
