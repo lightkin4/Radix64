@@ -16,11 +16,26 @@ type StoredApp = {
   updatedAt: string;
   version: number;
   building: boolean;
+  // Last heartbeat from the turn that owns the app, so a long build on a slow
+  // model is never mistaken for a crashed one.
+  buildingAt?: string | null;
   html: string | null;
   messages: ChatMessage[];
   repo: RepoSnapshot | null;
 };
 type Db = { apps: StoredApp[] };
+
+// A turn refreshes buildingAt while it works. A claim that stops refreshing
+// (dev server restarted, process killed, browser gone) is released so the app
+// can be built again instead of refusing every later message.
+const STALE_BUILD_MS = 5 * 60 * 1000;
+export const BUILD_HEARTBEAT_MS = 60 * 1000;
+
+function isStaleBuild(app: StoredApp): boolean {
+  if (!app.building) return false;
+  const since = Date.parse(app.buildingAt ?? app.updatedAt);
+  return Number.isFinite(since) && Date.now() - since > STALE_BUILD_MS;
+}
 
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -31,13 +46,32 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 }
 
 async function readDb(): Promise<Db> {
+  let db: Db;
   try {
     const parsed = JSON.parse(await readFile(dbFile, "utf8"));
-    return { apps: Array.isArray(parsed.apps) ? parsed.apps : [] };
+    db = { apps: Array.isArray(parsed.apps) ? parsed.apps : [] };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { apps: [] };
     throw error;
   }
+
+  const stale = db.apps.filter(isStaleBuild);
+  if (stale.length > 0) {
+    const now = new Date().toISOString();
+    for (const app of stale) {
+      app.building = false;
+      app.buildingAt = null;
+      app.updatedAt = now;
+      app.messages.push({
+        id: randomUUID(),
+        role: "assistant",
+        text: "The build was interrupted before it finished. Send the message again to build it.",
+        createdAt: now,
+      });
+    }
+    await writeDb(db);
+  }
+  return db;
 }
 
 async function writeDb(db: Db) {
@@ -158,6 +192,7 @@ export function startTurn(
     };
     app.messages.push(message);
     app.building = true;
+    app.buildingAt = message.createdAt;
     app.updatedAt = message.createdAt;
     await writeDb(db);
     return { message, app: detail(app) };
@@ -177,6 +212,7 @@ export function finishTurn(
     app.html = html;
     app.version += 1;
     app.building = false;
+    app.buildingAt = null;
     app.updatedAt = now;
     app.messages.push({
       id: randomUUID(),
@@ -195,12 +231,24 @@ export async function failTurn(id: string, message: string) {
     const app = db.apps.find((candidate) => candidate.id === id);
     if (!app) return;
     app.building = false;
+    app.buildingAt = null;
     app.messages.push({
       id: randomUUID(),
       role: "assistant",
       text: message,
       createdAt: new Date().toISOString(),
     });
+    await writeDb(db);
+  });
+}
+
+// Refreshes the claim of a running turn (see STALE_BUILD_MS).
+export function touchTurn(id: string): Promise<void> {
+  return enqueue(async () => {
+    const db = await readDb();
+    const app = db.apps.find((candidate) => candidate.id === id);
+    if (!app || !app.building) return;
+    app.buildingAt = new Date().toISOString();
     await writeDb(db);
   });
 }

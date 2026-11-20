@@ -1,11 +1,13 @@
 import { complete, isModelReady, streamChat } from "@/lib/llm";
 import { buildMessages, extractHtml, replyMessages } from "@/lib/prompts";
 import {
+  BUILD_HEARTBEAT_MS,
   failTurn,
   finishTurn,
   getAppHtml,
   getAppRepo,
   startTurn,
+  touchTurn,
 } from "@/lib/store";
 import type { ChatEvent } from "@/lib/types";
 
@@ -50,6 +52,12 @@ export async function POST(
   };
   request.signal.addEventListener("abort", stopTurn);
 
+  // A long build on a slow model refreshes its claim so it is never released
+  // as stale, and a browser that closes the stream releases the turn at once.
+  const heartbeat = setInterval(() => {
+    void touchTurn(id);
+  }, BUILD_HEARTBEAT_MS);
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -82,7 +90,7 @@ export async function POST(
         step(buildStep, "running");
         building = true;
         const generated = await complete(buildMessages(prompt, html, repo), {
-          numPredict: 2600,
+          numPredict: 1600,
           temperature: 0.4,
           signal: request.signal,
         });
@@ -116,8 +124,19 @@ export async function POST(
           await failTurn(id, message);
         }
       } finally {
-        controller.close();
+        clearInterval(heartbeat);
+        try {
+          controller.close();
+        } catch {
+          // The stream was already cancelled by a closed browser.
+        }
       }
+    },
+    // The browser went away: release the turn immediately instead of leaving
+    // the app "building" until the stale check notices.
+    cancel() {
+      clearInterval(heartbeat);
+      stopTurn();
     },
   });
 

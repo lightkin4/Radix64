@@ -1,6 +1,13 @@
-import { ollamaCandidates, ollamaFetch, ollamaStatus, reachableEndpoint } from "./ollama";
+import {
+  MODEL_NAME,
+  ollamaCandidates,
+  ollamaFetch,
+  ollamaStatus,
+  reachableEndpoint,
+} from "./ollama";
 import { defaultModelName, selectedModelName } from "./llm";
 import { readLines } from "./ndjson";
+import { buildApp, type BuildEvent, type BuildResult } from "./build";
 import type { TerminalEvent } from "./types";
 
 // The Radix64 terminal: a small managed command set that runs on the server and
@@ -16,6 +23,7 @@ const helpLines = [
   "  models                 models installed in Ollama",
   "  ps                     models currently loaded in memory",
   "  show <model>           details for one model",
+  "  build <prompt>         build any app with the local model",
   "  ask <prompt>           chat with the selected model",
   "  run <model> <prompt>   chat with a specific model",
   "  pull <model>           download a model (e.g. llama3.2:3b)",
@@ -24,7 +32,7 @@ const helpLines = [
   "  help                   this list",
 ];
 
-const modelPattern = /^[\w.\-/:]{1,80}$/;
+const modelPattern = MODEL_NAME;
 
 function tokenize(input: string): string[] {
   const parts: string[] = [];
@@ -188,29 +196,39 @@ async function* chat(
   }
 
   let count = 0;
-  for await (const line of readLines(response.body)) {
-    let data: Json;
-    try {
-      data = JSON.parse(line) as Json;
-    } catch {
-      continue;
+  try {
+    for await (const line of readLines(response.body)) {
+      let data: Json;
+      try {
+        data = JSON.parse(line) as Json;
+      } catch {
+        continue;
+      }
+      if (typeof data.error === "string") {
+        yield { type: "error", text: data.error };
+        return;
+      }
+      const text = (data.message as Json | undefined)?.content;
+      if (typeof text === "string" && text) {
+        count += 1;
+        yield { type: "delta", text };
+      }
+      if (data.done) {
+        const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
+        yield {
+          type: "line",
+          text: `\n✓ ${model} · ${count} chunks · ${seconds}s`,
+        };
+      }
     }
-    if (typeof data.error === "string") {
-      yield { type: "error", text: data.error };
+  } catch (error) {
+    // Stop (or a closed panel) is not a failure: end the command quietly so the
+    // terminal is ready for the next one.
+    if (signal.aborted) {
+      yield { type: "line", text: "\n⏹ stopped" };
       return;
     }
-    const text = (data.message as Json | undefined)?.content;
-    if (typeof text === "string" && text) {
-      count += 1;
-      yield { type: "delta", text };
-    }
-    if (data.done) {
-      const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
-      yield {
-        type: "line",
-        text: `\n✓ ${model} · ${count} chunks · ${seconds}s`,
-      };
-    }
+    yield { type: "error", text: errorText(error) };
   }
 }
 
@@ -271,6 +289,79 @@ async function* status(): AsyncGenerator<TerminalEvent> {
   yield { type: "line", text: `last endpoint    ${reachableEndpoint()}` };
 }
 
+// Bridges the build pipeline's callback events into the terminal stream, so
+// progress arrives while the model writes instead of after it finishes.
+async function* runBuild(
+  prompt: string,
+  signal: AbortSignal,
+): AsyncGenerator<TerminalEvent> {
+  const queue: BuildEvent[] = [];
+  let wake: (() => void) | null = null;
+  let finished = false;
+  let failure: unknown = null;
+  let result: BuildResult | null = null;
+
+  const push = (event: BuildEvent) => {
+    queue.push(event);
+    wake?.();
+    wake = null;
+  };
+
+  void buildApp({ prompt, signal, emit: push })
+    .then((built) => {
+      result = built;
+    })
+    .catch((error: unknown) => {
+      failure = error;
+    })
+    .finally(() => {
+      finished = true;
+      wake?.();
+      wake = null;
+    });
+
+  while (!finished || queue.length > 0) {
+    if (queue.length === 0) {
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+      continue;
+    }
+    const event = queue.shift() as BuildEvent;
+    if (event.type === "app") {
+      yield { type: "line", text: `app              ${event.app.name}` };
+    } else if (event.type === "step") {
+      const icon =
+        event.status === "running" ? "…" : event.status === "done" ? "✓" : "✗";
+      yield { type: "line", text: `${icon} ${event.label}` };
+    } else if (event.type === "progress") {
+      if (event.tokens % 200 === 0)
+        yield { type: "line", text: `… ${event.tokens} tokens written` };
+    } else if (event.type === "build") {
+      yield { type: "line", text: `preview          ${event.preview}` };
+    } else if (event.type === "error") {
+      yield { type: "error", text: event.message };
+    }
+  }
+
+  if (failure) {
+    yield {
+      type: "error",
+      text: failure instanceof Error ? failure.message : "The build failed.",
+    };
+    return;
+  }
+
+  const built = result as BuildResult | null;
+  if (built) {
+    yield {
+      type: "line",
+      text: `✓ ${built.app.name} · v${built.version} · open in the preview panel`,
+    };
+    yield { type: "app", app: built.app, version: built.version };
+  }
+}
+
 export async function* runTerminalCommand(
   input: string,
   signal: AbortSignal,
@@ -318,6 +409,20 @@ export async function* runTerminalCommand(
         };
       }
       return;
+    case "build": {
+      const spec = rest.join(" ");
+      if (!spec) {
+        yield { type: "error", text: "Usage: build <prompt>" };
+        return;
+      }
+      yield { type: "line", text: `Building: ${spec}` };
+      yield {
+        type: "line",
+        text: "A build takes a few minutes on the local model.",
+      };
+      yield* runBuild(spec, signal);
+      return;
+    }
     case "ask": {
       const question = rest.join(" ");
       if (!question) {

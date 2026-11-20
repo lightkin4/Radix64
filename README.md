@@ -57,6 +57,7 @@ Each app keeps its chat history and latest build in a small JSON store (`DATA_DI
 | `GET /api/config` | Active model provider and readiness |
 | `GET /api/models` | Models installed in Ollama, plus the selected one |
 | `POST /api/models/pull` | Download another model by `{ name }` |
+| `POST /api/build` | Build any app from `{ prompt, appId? }`, streamed as NDJSON |
 | `POST /api/terminal` | Run one terminal command, streamed as NDJSON |
 | `GET` / `PUT /api/settings` | Selected model and whether a GitHub token is stored |
 | `POST /api/github/import` | Read a repository (`{ url, branch?, token? }`) into a new app |
@@ -79,6 +80,7 @@ command history you can walk with the arrow keys:
 | `models` | Models installed in Ollama |
 | `ps` | Models currently loaded in memory |
 | `show <model>` | Family, parameter size, quantization, capabilities |
+| `build <prompt>` | Build any app; the finished app opens in the preview panel |
 | `ask <prompt>` | Chat with the selected model, streamed |
 | `run <model> <prompt>` | Chat with a specific model, streamed |
 | `pull <model>` | Download a model with progress |
@@ -87,6 +89,58 @@ command history you can walk with the arrow keys:
 
 Chat and downloads run without a connect deadline, because Ollama answers only after
 the prompt is evaluated and a model can take minutes to load.
+
+## Build API
+
+`POST /api/build` builds any app you can describe, or rebuilds an existing one, with
+the local model. It is the same pipeline the chat and the terminal's `build` command
+use (`lib/build.ts`), so a prompt that works in one works in all three.
+
+```bash
+curl -N -X POST http://localhost:3000/api/build \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "a pomodoro timer with a dark theme"}'
+
+# rebuild an existing app
+curl -N -X POST http://localhost:3000/api/build \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "add a reset button", "appId": "<app id>"}'
+```
+
+Progress streams as newline-delimited JSON: `app` (created or opened), `step`
+(`running` / `done` / `error`), `progress` (`tokens` written so far), `build`
+(`appId`, `version`, `preview` URL), `error`, `done`. The finished HTML is stored with
+the app and served from `preview`.
+
+A build holds the app while it runs and refreshes its claim every minute, so a slow
+local model is never mistaken for a crashed one. If the process is killed (dev reload,
+restart) the claim stops refreshing and is released after five minutes with a note in
+the app's chat, so the app can be built again instead of refusing every message.
+
+Only one build runs at a time, because the local model answers one request at a time:
+a second build is refused with "… is still building" instead of waiting invisibly in a
+queue. A build also stops itself — after three minutes with no token from the model,
+and at a twenty-minute ceiling — and releases the app with an explanation.
+
+## Tests
+
+```bash
+docker compose exec -T web npm test
+
+# include the live model round-trip (slow, needs the model to be free)
+docker compose exec -T web env RADIX64_LIVE_CHAT=1 npm test
+```
+
+Node's test runner executes the TypeScript sources directly (type stripping plus
+`tests/register.mjs`, which resolves extensionless imports like the Next.js build).
+The suite covers:
+
+- `tests/ollama.test.mts` — connectivity to the Ollama server on the compose network,
+  endpoint fallback when the configured address is dead, installed models.
+- `tests/terminal.test.mts` — every terminal command, usage errors, error recovery
+  (a failed command leaves the terminal usable) and a chat command stopped mid-stream.
+- `tests/build.test.mts` — the build pipeline with a fake model: new app, rebuild with
+  the current HTML, failure releasing the build slot, and a concurrent build refused.
 
 ## Building from a GitHub repository
 

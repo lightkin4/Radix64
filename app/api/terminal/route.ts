@@ -13,6 +13,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Type a command first." }, { status: 400 });
 
   const encoder = new TextEncoder();
+  // Closing the panel stops the command, so a build never keeps the app claimed.
+  const stop = new AbortController();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: TerminalEvent): boolean => {
@@ -25,9 +27,10 @@ export async function POST(request: Request) {
         }
       };
 
+      const signal = AbortSignal.any([request.signal, stop.signal]);
       try {
-        for await (const event of runTerminalCommand(command, request.signal)) {
-          if (request.signal.aborted) break;
+        for await (const event of runTerminalCommand(command, signal)) {
+          if (signal.aborted) break;
           if (!send(event)) return;
         }
       } catch (error) {
@@ -36,13 +39,16 @@ export async function POST(request: Request) {
           text: error instanceof Error ? error.message : "The command failed.",
         });
       } finally {
-        if (!request.signal.aborted) send({ type: "done", code: 0 });
+        if (!signal.aborted) send({ type: "done", code: 0 });
         try {
           controller.close();
         } catch {
           // Already closed by the cancelled stream.
         }
       }
+    },
+    cancel() {
+      stop.abort();
     },
   });
 

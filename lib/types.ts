@@ -45,6 +45,8 @@ export type TerminalEvent =
   | { type: "line"; text: string }
   | { type: "delta"; text: string }
   | { type: "error"; text: string }
+  // A finished build, so the panel can open the new app in the preview.
+  | { type: "app"; app: AppSummary; version: number }
   | { type: "done"; code: number };
 
 export type ModelConfig = {

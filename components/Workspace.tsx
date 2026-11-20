@@ -101,7 +101,17 @@ export default function Workspace() {
         />
       )}
       {showTerminal && (
-        <Terminal onClose={() => setShowTerminal(false)} />
+        <Terminal
+          onClose={() => setShowTerminal(false)}
+          onBuilt={(built, builtVersion) => {
+            setApps((all) => [
+              built,
+              ...all.filter((candidate) => candidate.id !== built.id),
+            ]);
+            setAppId(built.id);
+            setVersion(builtVersion);
+          }}
+        />
       )}
     </div>
   );

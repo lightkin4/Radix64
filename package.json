@@ -6,7 +6,8 @@
     "dev": "next dev --hostname 127.0.0.1 --port 3001",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3001",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --import=./tests/register.mjs --test tests/*.test.mts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.1.6",

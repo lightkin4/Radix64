@@ -52,7 +52,7 @@ export function replyMessages(
 }
 
 // Compact view of a connected repository: the tree plus the most useful files.
-export function repoContext(repo: RepoSnapshot, budget = 14_000): string {
+export function repoContext(repo: RepoSnapshot, budget = 8_000): string {
   const tree = repo.files
     .slice(0, 120)
     .map((file) => file.path)

@@ -17,6 +17,10 @@ function normalize(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+// A model name Ollama accepts: `llama3.2:3b`, `qwen2.5:3b`, or a namespaced
+// `hf.co/user/model:tag`. No path traversal, no leading slash.
+export const MODEL_NAME = /^(?!.*\.\.)[a-z0-9][\w.\-/:]{0,79}$/i;
+
 // Every address Radix64 will try, configured ones first.
 export function ollamaCandidates(): string[] {
   const configured = (process.env.OLLAMA_BASE_URL ?? "")

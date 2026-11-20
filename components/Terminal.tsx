@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { TerminalIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { streamTerminal } from "@/lib/api";
+import type { AppSummary } from "@/lib/types";
 
 type Kind = "cmd" | "out" | "err" | "note";
 type Line = { id: number; kind: Kind; text: string };
@@ -14,7 +15,14 @@ const quickCommands = ["status", "models", "ps", "help"];
 // A terminal managed by the Radix64 server: every command runs against the
 // local Ollama API on the compose network, so the models and the server can be
 // inspected and driven from inside the app.
-export default function Terminal({ onClose }: { onClose: () => void }) {
+export default function Terminal({
+  onClose,
+  onBuilt,
+}: {
+  onClose: () => void;
+  // A `build` command finished: show that app in the preview panel.
+  onBuilt: (app: AppSummary, version: number) => void;
+}) {
   const [lines, setLines] = useState<Line[]>(() => [
     {
       id: nextLineId++,
@@ -95,6 +103,10 @@ export default function Terminal({ onClose }: { onClose: () => void }) {
         } else if (event.type === "error") {
           streamingId = null;
           append("err", event.text);
+        } else if (event.type === "app") {
+          streamingId = null;
+          onBuilt(event.app, event.version);
+          append("note", `Opened ${event.app.name} in the preview panel.`);
         }
       }
     } catch (cause) {

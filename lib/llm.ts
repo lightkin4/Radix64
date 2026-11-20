@@ -1,7 +1,7 @@
 import type { ModelConfig, ModelInfo } from "./types";
 import { getSettings } from "./settings";
 import { readLines } from "./ndjson";
-import { ollamaCandidates, ollamaFetch } from "./ollama";
+import { MODEL_NAME, ollamaCandidates, ollamaFetch } from "./ollama";
 
 // Self-hosted LLM access. The default provider is a local Ollama server; the
 // model is whatever the user picked in the model settings, falling back to
@@ -137,7 +137,7 @@ export async function getModelStatus(): Promise<ModelConfig> {
 // Downloads a model into Ollama. Blocks until the download finishes.
 export async function pullModel(name: string): Promise<string> {
   const wanted = name.trim();
-  if (!/^[\w.\-/:]{1,80}$/.test(wanted)) {
+  if (!MODEL_NAME.test(wanted)) {
     throw new Error("Use a model name like llama3.2:3b or qwen2.5:3b.");
   }
   if (provider === "openai") {
@@ -263,27 +263,71 @@ function chunkText(line: string): string {
   }
 }
 
+// A reply that stops sending tokens is dead, not slow: three silent minutes means
+// the generation is wedged, so the request is aborted instead of waiting forever.
+const IDLE_TIMEOUT_MS = 180_000;
+
 export async function* streamChat(
   messages: LLMMessage[],
   options: Options = {},
 ): AsyncGenerator<string> {
-  let response: Response;
-  let model: string;
-  try {
-    ({ response, model } = await request(messages, options));
-  } catch (error) {
-    throw unreachable(error);
-  }
-  if (!response.ok || !response.body) {
-    throw new Error(
-      response.status === 404
-        ? `The model ${model} is not downloaded yet — pick or download it in the model settings.`
-        : `The local model returned ${response.status}.`,
+  const controller = new AbortController();
+  let idle = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      idle = true;
+      controller.abort();
+    }, IDLE_TIMEOUT_MS);
+  };
+  const forwardAbort = () => controller.abort();
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
+  arm();
+
+  const wedged = () =>
+    new Error(
+      "The local model stopped responding — the request was stopped. Try again, or pick a smaller model in the model settings.",
     );
-  }
-  for await (const line of readLines(response.body)) {
-    const text = chunkText(line);
-    if (text) yield text;
+
+  try {
+    let response: Response;
+    let model: string;
+    try {
+      ({ response, model } = await request(messages, {
+        ...options,
+        signal: controller.signal,
+      }));
+    } catch (error) {
+      if (idle) throw wedged();
+      throw unreachable(error);
+    }
+    if (!response.ok || !response.body) {
+      throw new Error(
+        response.status === 404
+          ? `The model ${model} is not downloaded yet — pick or download it in the model settings.`
+          : `The local model returned ${response.status}.`,
+      );
+    }
+    for await (const line of readLines(response.body)) {
+      arm();
+      const text = chunkText(line);
+      if (text) yield text;
+    }
+  } catch (error) {
+    if (idle) throw wedged();
+    if (options.signal?.aborted) throw error;
+    // A dropped stream (server restart, closed socket) reads as "terminated";
+    // say what happened instead of storing that raw message in the chat.
+    if (
+      error instanceof Error &&
+      /terminated|ECONNRESET|socket hang up|fetch failed/i.test(error.message)
+    )
+      throw new Error("The connection to the model server dropped — try again.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", forwardAbort);
   }
 }
 
